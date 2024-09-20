@@ -17,8 +17,8 @@ Streamlit
 FastAPI
 
 System distribution:
-1. Application is made using streamlit to make a user interface consist of main page where user predictions are made by input and upload of file. And past prediction is displayed in next page.
-2. Backend service is interacted using fastAPI script using python service. It makes to predict and store the predicted data.
-3. Data are stored in Postgres SQL.
-4. Airflow is used for data ingestion pipeline.
+1. Application is made using streamlit to make a user interface consist of main page where user predictions are made through user input and also by uploading of file. And past predictions are displayed in next page.
+2. Backend service is created by fastAPI service and python programming language. It makes to predict and store the predicted data.
+3. Data are stored in Postgres SQL database.
+4. Airflow is used for data ingestion.
 
