@@ -70,15 +70,7 @@ if st.checkbox('Predict using file'):
         if response.status_code == 200:
             result = response.json()  # Extract JSON content
             df = pd.DataFrame(result["predicted_data"])  # Convert to DataFrame
-            # Custom function to apply the highlighting
-            def highlight_fraud(row):
-                if row['is_fraud'] == 1:
-                    return ['background-color: lightcoral'] * len(row)
-                else:
-                    return ['background-color: lightgreen'] * len(row)
-
-            # Apply the highlighting
-            #styled_df = df.style.apply(highlight_fraud, axis=1)
+            
             fraud_count = df[df['is_fraud'] == 1].shape[0]
             st.write(f"Number of fraudulent transactions detected: {fraud_count}")
             st.write("Prediction completed. Here's the data with predictions:")
