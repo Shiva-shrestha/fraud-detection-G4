@@ -3,3 +3,5 @@ uvicorn main_service:app --reload
 
 run streamlit:
 streamlit run main.py
+
+- pip install requests
