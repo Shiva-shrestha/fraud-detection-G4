@@ -17,11 +17,11 @@ model = joblib.load('../model/model.joblib')
 
 # Database connection parameters
 conn_params = {
-    "host": "localhost",
-    "port": "5432",
-    "database": "dsp_project",
-    "user": "postgres",
-    "password": "root"
+    "host": "localhost",  # Database host
+    "port": "5432",       # Port number, default is 5432
+    "database": "Fraud detection",  # Database name
+    "user": "postgres",           # Username
+    "password": "1234"
 }
 
 # Define the data model for user inputs
@@ -130,7 +130,10 @@ async def predict_transaction(transaction: Transaction):
 async def predict_file(file: UploadFile = File(...)):
     # Read the uploaded CSV file into a DataFrame
     df = pd.read_csv(file.file)
-
+    
+    # Count the total number of rows in the CSV
+    total_rows = df.shape[0]
+    
     # Preprocess and predict
     clean_data = df.drop(columns=constant.COLUMNS_TO_DROP, errors='ignore')
     feature_columns = model.named_steps['preprocessor'].transformers_[0][2] + \
@@ -144,10 +147,21 @@ async def predict_file(file: UploadFile = File(...)):
     # Insert the data into the database
     insert_data_to_db(df)
 
+    # Count of fraudulent transactions
+    fraud_count = df[df['is_fraud'] == 1].shape[0]
+
+    # Calculate percentage of fraudulent transactions
+    fraud_percentage = (fraud_count / total_rows * 100) if total_rows > 0 else 0
+
     # Convert DataFrame to JSON and return the full dataset
     result = df.to_dict(orient='records')
     
-    return {"predicted_data": result}
+    return {
+        "predicted_data": result,
+        "total_rows": total_rows,
+        "fraud_count": fraud_count,
+        "fraud_percentage": fraud_percentage  # Include the percentage of fraud
+    }
 
 if __name__ == "__main__":
     import uvicorn
