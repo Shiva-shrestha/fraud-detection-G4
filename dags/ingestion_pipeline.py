@@ -1,141 +1,159 @@
-from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.decorators import dag, task
+from airflow.exceptions import AirflowFailException, AirflowSkipException
 from datetime import datetime, timedelta
-import pandas as pd
-import requests
-import csv
 import os
+import pandas as pd
+import random
+import json
+import requests
 
-# Define default arguments
-default_args = {
-    'owner': 'airflow',
-    'depends_on_past': False,
-    'start_date': datetime(2023, 9, 20),  # Adjust start date as needed
-    'email_on_failure': False,
-    'email_on_retry': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
-}
 
-# Define the DAG
-dag = DAG(
-    'Credit Card Transaction Fraud Detection',
-    default_args=default_args,
-    description='A pipepline injestion for the work flow',
-    schedule_interval=timedelta(days=1),  # Run once per day
+# Go up two directories from the script's location
+BASE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+print(BASE_PATH)
+# Define paths for the raw, good, and bad data
+RAW_DATA_PATH = os.getenv("RAW_DATA_PATH", os.path.join(BASE_PATH, "raw_data"))
+GOOD_DATA_PATH = os.getenv("GOOD_DATA_PATH", os.path.join(BASE_PATH, "good_data"))
+BAD_DATA_PATH = os.getenv("BAD_DATA_PATH", os.path.join(BASE_PATH, "bad_data"))
+
+# Ensure directories exist
+os.makedirs(GOOD_DATA_PATH, exist_ok=True)
+os.makedirs(RAW_DATA_PATH, exist_ok=True)
+os.makedirs(BAD_DATA_PATH, exist_ok=True)
+
+
+@dag(
+    dag_id="data_ingestion_pipeline",
+    schedule_interval=timedelta(days=1),
+    start_date=datetime(2023, 1, 1),
+    catchup=False,
 )
-
-# Define your functions (tasks)
-
-# 1. Create directory task
-def create_directory(directory_name):
-    if not os.path.exists(directory_name):
-        os.mkdir(directory_name)
-    else:
-        print(f"Directory '{directory_name}' already exists.")
-
-# 2. Split the source CSV into smaller files
-def split_csv(input_file, output_prefix, rows_per_file):
-    with open(input_file, 'r') as infile:
-        reader = csv.reader(infile)
-        header = next(reader)  # Read the header row
-        output_file = None
-        row_count = 0
-        file_count = 1
-
-        for row in reader:
-            if row_count == 0:
-                output_file = open(os.path.join("good_data", f"{output_prefix}_{file_count}.csv"), 'w', newline='')
-                writer = csv.writer(output_file)
-                writer.writerow(header)
-            writer.writerow(row)
-            row_count += 1
-            if row_count == rows_per_file:
-                output_file.close()
-                row_count = 0
-                file_count += 1
-
-        if output_file:
-            output_file.close()
-
-# 3. Merge data from the good_data folder into a single file
-def get_data(folder_path, output_file):
-    required_columns = ['merchant', 'category', 'amt', 'gender', 'lat', 'long', 'city_pop', 'job', 'unix_time', 'merch_lat', 'merch_long']
-    dfs = []
-
-    for file_name in os.listdir(folder_path):
-        if file_name.endswith('.csv'):
-            file_path = os.path.join(folder_path, file_name)
+def data_ingestion():    
+    @task
+    def read_data() -> pd.DataFrame:
+        files = [f for f in os.listdir(RAW_DATA_PATH) if f.endswith(".csv")]
+        if not files:
+            raise AirflowSkipException("No CSV files found in raw data.")
+        
+        # Choose a random file and load it as a DataFrame
+        file = random.choice(files)
+        file_path = os.path.join(RAW_DATA_PATH, file)
+        
+        try:
             df = pd.read_csv(file_path)
-            dfs.append(df)
+        except Exception as e:
+            raise ValueError(f"Error reading file {file_path}: {str(e)}")
+        
+        # Log file read and remove it to prevent reprocessing
+        print(f"Read and ingested data from {file_path}")
+        os.remove(file_path)
+        
+        return df
 
-    if dfs:
-        combined_df = pd.concat(dfs, ignore_index=True)
-        combined_df.to_csv(output_file, index=False)
-    else:
-        print("No files to combine.")
+    @task
+    def validate_data(df: pd.DataFrame) -> dict:
+        """
+        Perform custom data validation checks and return a report of any issues found.
+        """
+        validation_report = {"missing_values": {}, "out_of_range": {}}
+        
+        # Check for missing values in each column
+        for col in df.columns:
+            missing_count = df[col].isnull().sum()
+            if missing_count > 0:
+                validation_report["missing_values"][col] = missing_count
 
-# 4. Send the combined data for prediction
-def ingestion_predict(uploaded_file):
-    API_URL = "http://127.0.0.1:8000"
-    with open(uploaded_file, 'rb') as f:
-        response = requests.post(f"{API_URL}/predict-file/", files={"file": f})
+        # Example check for out-of-range values in specific columns (customize as needed)
+        if "age" in df.columns:
+            out_of_range_age = df[~df["age"].between(0, 120)].index.tolist()
+            if out_of_range_age:
+                validation_report["out_of_range"]["age"] = out_of_range_age
 
-    if response.status_code == 200:
-        result = response.json()
-        df = pd.DataFrame(result["predicted_data"])
-        fraud_count = df[df['is_fraud'] == 1].shape[0]
-        print(f"Number of fraud cases: {fraud_count}")
-    else:
-        print(f"Error: {response.status_code} - {response.text}")
+        if "amt" in df.columns:
+            out_of_range_salary = df[df["amt"] < 0].index.tolist()
+            if out_of_range_salary:
+                validation_report["out_of_range"]["amt"] = out_of_range_salary
+        
+        # Determine if the validation has any errors
+        errors_found = bool(validation_report["missing_values"] or validation_report["out_of_range"])
+        
+        return {"report": validation_report, "errors_found": errors_found, "data_frame": df}
 
-# Task definitions
+    @task
+    def send_alert(validation_report: dict) -> None:
+        """
+        Send an alert if there are any validation errors.
+        """
+        if not validation_report["errors_found"]:
+            print("No validation errors found. No alert sent.")
+            return
 
-# Task 1: Create directories
-create_good_data_dir = PythonOperator(
-    task_id='create_good_data_directory',
-    python_callable=create_directory,
-    op_kwargs={'directory_name': 'good_data'},
-    dag=dag,
-)
+        report = validation_report["report"]
+        alert_msg = {
+            "title": "Data Validation Report",
+            "text": f"Data validation found issues:\n\n{report}"
+        }
 
-create_bad_data_dir = PythonOperator(
-    task_id='create_bad_data_directory',
-    python_callable=create_directory,
-    op_kwargs={'directory_name': 'bad_data'},
-    dag=dag,
-)
+    @task
+    def save_file(validation_report: dict) -> None:
+        """
+        Segregate data into 'good' and 'bad' based on the validation report and save to respective directories.
+        """
+        df = validation_report["data_frame"]
+        report = validation_report["report"]
+        
+        # Identify bad rows based on missing values and out-of-range indices
+        bad_rows = set()
+        
+        # Collect indices of rows with missing values
+        for col, indices in report["missing_values"].items():
+            bad_rows.update(df[df[col].isnull()].index)
+        
+        # Collect indices of rows with out-of-range values
+        for col, indices in report["out_of_range"].items():
+            bad_rows.update(indices)
+        
+        # Separate good and bad data
+        #bad_data = df.loc[bad_rows]
+        #good_data = df.drop(bad_rows)
+        
+        print(bad_rows)
+        # Save data to respective directories
+      #  timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+       # good_data.to_csv(os.path.join(GOOD_DATA_PATH, f"good_data_{timestamp}.csv"), index=False)
+       # bad_data.to_csv(os.path.join(BAD_DATA_PATH, f"bad_data_{timestamp}.csv"), index=False)
 
-# Task 2: Split the source CSV
-split_csv_task = PythonOperator(
-    task_id='split_csv',
-    python_callable=split_csv,
-    op_kwargs={
-        'input_file': '../data/testData.csv',
-        'output_prefix': 'split_data',
-        'rows_per_file': 1000
-    },
-    dag=dag,
-)
+       # print(f"Good data saved to: {GOOD_DATA_PATH}")
+       # print(f"Bad data saved to: {BAD_DATA_PATH}")
 
-# Task 3: Merge data
-merge_data_task = PythonOperator(
-    task_id='merge_data',
-    python_callable=get_data,
-    op_kwargs={
-        'folder_path': 'good_data',
-        'output_file': 'combined_data.csv',
-    },
-    dag=dag,
-)
+    @task
+    def save_statistics(validation_report: dict) -> None:
+        """
+        Calculate and save summary statistics based on the validation report.
+        """
+        report = validation_report["report"]
+        
+        stats = {
+            "total_rows": len(validation_report["data_frame"]),
+            "missing_value_columns": len(report["missing_values"]),
+            "out_of_range_columns": len(report["out_of_range"]),
+            "errors_found": validation_report["errors_found"],
+            "timestamp": datetime.now().isoformat(),
+        }
 
-# Task 4: Predict fraud from the merged file
-predict_fraud_task = PythonOperator(
-    task_id='predict_fraud',
-    python_callable=ingestion_predict,
-    op_kwargs={'uploaded_file': 'combined_data.csv'},
-    dag=dag,
-)
+        # Log the statistics as JSON
+        stats_json = json.dumps(stats, indent=4)
+        print(f"Statistics:\n{stats_json}")
 
-# Task dependencies: Set the execution order
-create_good_data_dir >> create_bad_data_dir >> split_csv_task >> merge_data_task >> predict_fraud_task
+        # Save the statistics to a file or a database as required
+        with open("data_validation_statistics.json", "w") as f:
+            f.write(stats_json)
+
+    # DAG sequence
+    data_df = read_data()
+    validation_result = validate_data(data_df)
+    send_alert(validation_result)
+    save_file(validation_result)
+    save_statistics(validation_result)
+
+data_ingestion_dag = data_ingestion()
