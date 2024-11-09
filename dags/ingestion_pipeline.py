@@ -9,8 +9,11 @@ import requests
 
 
 # Go up two directories from the script's location
-BASE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-print(BASE_PATH)
+BASE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+
+#BASE_PATH = os.path.join("/opt/airflow", "data")
+
+
 # Define paths for the raw, good, and bad data
 RAW_DATA_PATH = os.getenv("RAW_DATA_PATH", os.path.join(BASE_PATH, "raw_data"))
 GOOD_DATA_PATH = os.getenv("GOOD_DATA_PATH", os.path.join(BASE_PATH, "good_data"))

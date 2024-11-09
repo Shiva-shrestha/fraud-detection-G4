@@ -74,7 +74,6 @@ x-airflow-common:
     # AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
    # TEAMS_WEBHOOK_URL: ${TEAMS_WEBHOOK_URL}
   volumes:
-    - ${AIRFLOW_PROJ_DIR}:/opt/airflow
     - ${DAGS_FOLDER}:/opt/airflow/dags
     - ${LOGS_FOLDER}:/opt/airflow/logs
     - ${CONFIG_FOLDER}:/opt/airflow/config
@@ -139,14 +138,13 @@ services:
   airflow-webserver:
     <<: *airflow-common
     command: webserver
-    environment:
-      - AIRFLOW__WEBSERVER__WORKERS=1
+    user: "root"
     ports:
       - "8080:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 30s
-      timeout: 300s
+      timeout: 100s
       retries: 50
       start_period: 30s
     restart: always
@@ -158,6 +156,7 @@ services:
   airflow-scheduler:
     <<: *airflow-common
     command: scheduler
+    user: "root"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
       interval: 30s
@@ -173,6 +172,7 @@ services:
   airflow-worker:
     <<: *airflow-common
     command: celery worker
+    user: "root"
     healthcheck:
       # yamllint disable rule:line-length
       test:
@@ -196,6 +196,7 @@ services:
   airflow-triggerer:
     <<: *airflow-common
     command: triggerer
+    user: "root"
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
       interval: 30s

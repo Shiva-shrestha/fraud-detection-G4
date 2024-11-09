@@ -1,5 +1,45 @@
-pandas
-numpy
-joblib
-scikit-learn
-great_expectations
+
+# Apache Airflow 2.10
+apache-airflow==2.10.0
+
+# Python Libraries for Data Ingestion, Cleaning, and Processing
+pandas==1.5.3
+scikit-learn==1.2.1
+numpy==1.24.2
+
+# Libraries for Model Deployment and Serving (e.g., FastAPI for API services)
+fastapi==0.95.0
+uvicorn==0.22.0
+
+# Optional: Libraries for Frontend (e.g., Streamlit for building the web UI)
+streamlit==1.17.0
+
+# Libraries for Logging and Monitoring
+loguru==0.7.0
+
+# Additional Tools
+pydantic==1.11.1
+requests==2.28.1
+
+# Database Libraries (if you are using a database to store predictions)
+psycopg2==2.9.5  # For PostgreSQL
+sqlalchemy==2.0.0
+
+# Airflow dependencies for using specific features
+apache-airflow-providers-postgres==2.10.0
+apache-airflow-providers-python==2.10.0
+
+# For managing environments and virtual environments
+python-dotenv==0.21.1
+
+# Optional: Libraries for containerization with Docker (if using Docker)
+docker==5.0.3
+
+# For data visualization (if required)
+matplotlib==3.7.0
+
+# For managing ML models
+joblib==1.2.0
+
+# For JSON or YAML parsing if needed
+PyYAML==6.0
